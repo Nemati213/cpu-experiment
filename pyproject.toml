@@ -1,0 +1,41 @@
+[project]
+name = "csa-lab4"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = []
+
+[dependency-groups]
+dev = ["mypy", "pytest", "pytest-golden", "ruff"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",
+    "CPY",
+    "COM812",
+    "T20",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",
+    "INP001",
+    "PLR2004",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+enable_assertion_pass_hook = true
+testpaths = ["tests"]
+pythonpath = ["."]
+required_plugins = ["pytest-golden"]
