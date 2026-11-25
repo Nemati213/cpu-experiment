@@ -12,7 +12,9 @@ from isa import (
     encode,
     from_bytes,
     listing,
+    pack_program,
     to_bytes,
+    unpack_program,
 )
 
 
@@ -77,3 +79,30 @@ def test_listing() -> None:
         "000C - 51000001 - out 1\n"
         "0010 - 00000000 - halt"
     )
+
+
+def test_program_roundtrip() -> None:
+    code = [Instr(Opcode.PUSH, 1), Instr(Opcode.HALT)]
+    data = b"Hi" + bytes(2) + (7).to_bytes(4, "big")
+    image = pack_program(code, data)
+    assert image[:4] == bytes.fromhex("00000008")
+    assert image[4:12] == to_bytes(code)
+    assert image[12:] == data
+    assert unpack_program(image) == (code, data)
+
+
+def test_program_without_data() -> None:
+    code = [Instr(Opcode.HALT)]
+    assert unpack_program(pack_program(code, b"")) == (code, b"")
+
+
+@pytest.mark.parametrize(
+    ("image", "error"),
+    [
+        (bytes(2), "too short"),
+        (bytes.fromhex("00000008") + bytes(4), "bigger than the file"),
+    ],
+)
+def test_bad_program(image: bytes, error: str) -> None:
+    with pytest.raises(ValueError, match=error):
+        unpack_program(image)

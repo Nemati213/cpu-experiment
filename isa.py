@@ -114,6 +114,22 @@ def from_bytes(data: bytes) -> list[Instr]:
     ]
 
 
+def pack_program(code: list[Instr], data: bytes) -> bytes:
+    code_bytes = to_bytes(code)
+    return len(code_bytes).to_bytes(WORD_SIZE, "big") + code_bytes + data
+
+
+def unpack_program(image: bytes) -> tuple[list[Instr], bytes]:
+    if len(image) < WORD_SIZE:
+        msg = "file is too short"
+        raise ValueError(msg)
+    code_end = WORD_SIZE + int.from_bytes(image[:WORD_SIZE], "big")
+    if code_end > len(image):
+        msg = "code size is bigger than the file"
+        raise ValueError(msg)
+    return from_bytes(image[WORD_SIZE:code_end]), image[code_end:]
+
+
 def listing(code: list[Instr]) -> str:
     return "\n".join(
         f"{index * WORD_SIZE:04X} - {encode(instr):08X} - {instr}"
