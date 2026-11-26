@@ -41,6 +41,8 @@ BUILTINS = {
 }
 
 PORT_WORDS = {"in": Opcode.IN, "out": Opcode.OUT}
+DEFINING_WORDS = (":", ":interrupt")
+VECTOR = 1
 
 
 @dataclass(frozen=True)
@@ -95,10 +97,19 @@ def tokenize(source: str) -> list[Token]:
 
 @dataclass
 class Program:
-    code: list[Instr] = field(default_factory=list)
+    code: list[Instr] = field(default_factory=lambda: [Instr(Opcode.JMP), Instr(Opcode.IRET)])
     data: bytearray = field(default_factory=bytearray)
+    words: dict[str, int] = field(default_factory=dict)
+    current: Token | None = None
+    skip: int | None = 0
+
+    def here(self) -> int:
+        return len(self.code) * WORD_SIZE
 
     def emit(self, opcode: Opcode, arg: int = 0) -> None:
+        if self.current is None and self.skip is not None:
+            self.code[self.skip] = Instr(Opcode.JMP, self.here())
+            self.skip = None
         self.code.append(Instr(opcode, arg))
 
     def align_data(self) -> None:
@@ -117,6 +128,22 @@ class Program:
             self.emit(Opcode.PUSH, self.add_word(value))
             self.emit(Opcode.LOAD)
 
+    def begin_definition(self, token: Token, name: str) -> None:
+        if self.skip is None:
+            self.skip = len(self.code)
+            self.code.append(Instr(Opcode.JMP))
+        self.current = token
+        self.words[name] = self.here()
+        if token.word == ":interrupt":
+            self.code[VECTOR] = Instr(Opcode.JMP, self.here())
+
+    def end_definition(self, token: Token) -> None:
+        if self.current is None:
+            msg = f"line {token.line}: ; without :"
+            raise ValueError(msg)
+        self.emit(Opcode.IRET if self.current.word == ":interrupt" else Opcode.RET)
+        self.current = None
+
 
 def parse_number(token: Token) -> int | None:
     if not NUMBER.fullmatch(token.word):
@@ -128,35 +155,64 @@ def parse_number(token: Token) -> int | None:
     return value
 
 
-def compile_token(program: Program, tokens: list[Token], pos: int) -> int:
+def start_definition(program: Program, tokens: list[Token], pos: int) -> int:
     token = tokens[pos]
-    number = parse_number(token)
-    if number is not None:
-        after = tokens[pos + 1].word if pos + 1 < len(tokens) else ""
-        if after in PORT_WORDS:
-            program.emit(PORT_WORDS[after], number)
-            return pos + 2
-        program.push(number)
-        return pos + 1
-    if token.word in BUILTINS:
+    if program.current is not None:
+        msg = f"line {token.line}: {token.word} inside a definition"
+        raise ValueError(msg)
+    if pos + 1 == len(tokens) or parse_number(tokens[pos + 1]) is not None:
+        msg = f"line {token.line}: {token.word} needs a name"
+        raise ValueError(msg)
+    if token.word == ":interrupt" and program.code[VECTOR].opcode is Opcode.JMP:
+        msg = f"line {token.line}: second :interrupt"
+        raise ValueError(msg)
+    program.begin_definition(token, tokens[pos + 1].word)
+    return pos + 2
+
+
+def compile_number(program: Program, tokens: list[Token], pos: int, number: int) -> int:
+    after = tokens[pos + 1].word if pos + 1 < len(tokens) else ""
+    if after in PORT_WORDS:
+        program.emit(PORT_WORDS[after], number)
+        return pos + 2
+    program.push(number)
+    return pos + 1
+
+
+def compile_word(program: Program, token: Token) -> None:
+    if token.word == ";":
+        program.end_definition(token)
+    elif token.word in program.words:
+        program.emit(Opcode.CALL, program.words[token.word])
+    elif token.word in BUILTINS:
         program.emit(BUILTINS[token.word])
-        return pos + 1
-    if token.word in PORT_WORDS:
+    elif token.word in PORT_WORDS:
         msg = f"line {token.line}: {token.word} needs a port number right before it"
         raise ValueError(msg)
-    msg = f"line {token.line}: unknown word {token.word}"
-    raise ValueError(msg)
+    else:
+        msg = f"line {token.line}: unknown word {token.word}"
+        raise ValueError(msg)
+
+
+def compile_token(program: Program, tokens: list[Token], pos: int) -> int:
+    token = tokens[pos]
+    if token.word in DEFINING_WORDS:
+        return start_definition(program, tokens, pos)
+    number = parse_number(token)
+    if number is not None:
+        return compile_number(program, tokens, pos, number)
+    compile_word(program, token)
+    return pos + 1
 
 
 def translate(source: str) -> tuple[list[Instr], bytes]:
     tokens = tokenize(source)
     program = Program()
-    program.emit(Opcode.JMP)
-    program.emit(Opcode.IRET)
-    start = len(program.code) * WORD_SIZE
     pos = 0
     while pos < len(tokens):
         pos = compile_token(program, tokens, pos)
+    if program.current is not None:
+        msg = f"line {program.current.line}: missing ;"
+        raise ValueError(msg)
     program.emit(Opcode.HALT)
-    program.code[0] = Instr(Opcode.JMP, start)
     return program.code, bytes(program.data)

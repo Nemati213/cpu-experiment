@@ -117,3 +117,83 @@ def test_number_too_big(number: str) -> None:
 def test_unknown_word() -> None:
     with pytest.raises(ValueError, match="line 2: unknown word foo"):
         translate("1 2\n+ foo")
+
+
+def full_code(source: str) -> list[str]:
+    code, _ = translate(source)
+    return [str(instr) for instr in code]
+
+
+def test_definition_and_call() -> None:
+    assert full_code(": emit 1 out ; 72 emit") == [
+        "jmp 0x0010",
+        "iret",
+        "out 1",
+        "ret",
+        "push 72",
+        "call 0x0008",
+        "halt",
+    ]
+
+
+def test_word_calls_word() -> None:
+    assert full_code(": a 1 ; : b a a ; b") == [
+        "jmp 0x001C",
+        "iret",
+        "push 1",
+        "ret",
+        "call 0x0008",
+        "call 0x0008",
+        "ret",
+        "call 0x0010",
+        "halt",
+    ]
+
+
+def test_definition_between_main_code() -> None:
+    assert full_code("1 : f 2 ; f") == [
+        "jmp 0x0008",
+        "iret",
+        "push 1",
+        "jmp 0x0018",
+        "push 2",
+        "ret",
+        "call 0x0010",
+        "halt",
+    ]
+
+
+def test_recursion() -> None:
+    assert full_code(": f f ;")[2:4] == ["call 0x0008", "ret"]
+
+
+def test_user_word_overrides_builtin() -> None:
+    assert full_code(": dup 7 ; dup")[-2] == "call 0x0008"
+
+
+def test_interrupt_handler() -> None:
+    assert full_code(":interrupt on-key 0 in 1 out ; ei") == [
+        "jmp 0x0014",
+        "jmp 0x0008",
+        "in 0",
+        "out 1",
+        "iret",
+        "ei",
+        "halt",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "error"),
+    [
+        (";", "line 1: ; without :"),
+        (": a : b ; ;", "line 1: : inside a definition"),
+        (":", "line 1: : needs a name"),
+        (": 5 ;", "line 1: : needs a name"),
+        ("\n: f 1", "line 2: missing ;"),
+        (":interrupt a ; :interrupt b ;", "line 1: second :interrupt"),
+    ],
+)
+def test_definition_errors(source: str, error: str) -> None:
+    with pytest.raises(ValueError, match=error):
+        translate(source)
