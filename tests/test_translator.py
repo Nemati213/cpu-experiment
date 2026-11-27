@@ -197,3 +197,8 @@ def test_interrupt_handler() -> None:
 def test_definition_errors(source: str, error: str) -> None:
     with pytest.raises(ValueError, match=error):
         translate(source)
+
+
+def test_store_leaves_nothing_on_stack() -> None:
+    assert main_code("5 100 !") == ["push 5", "push 100", "store", "drop"]
+    assert main_code("65 100 c!") == ["push 65", "push 100", "store8", "drop"]

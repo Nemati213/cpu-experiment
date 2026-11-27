@@ -31,14 +31,14 @@ BUILTINS = {
     "r>": Opcode.FROMR,
     "r@": Opcode.RFETCH,
     "@": Opcode.LOAD,
-    "!": Opcode.STORE,
     "c@": Opcode.LOAD8,
-    "c!": Opcode.STORE8,
     "execute": Opcode.EXEC,
     "ei": Opcode.EI,
     "di": Opcode.DI,
     "bye": Opcode.HALT,
 }
+
+STORE_WORDS = {"!": Opcode.STORE, "c!": Opcode.STORE8}
 
 PORT_WORDS = {"in": Opcode.IN, "out": Opcode.OUT}
 DEFINING_WORDS = (":", ":interrupt")
@@ -186,6 +186,9 @@ def compile_word(program: Program, token: Token) -> None:
         program.emit(Opcode.CALL, program.words[token.word])
     elif token.word in BUILTINS:
         program.emit(BUILTINS[token.word])
+    elif token.word in STORE_WORDS:
+        program.emit(STORE_WORDS[token.word])
+        program.emit(Opcode.DROP)
     elif token.word in PORT_WORDS:
         msg = f"line {token.line}: {token.word} needs a port number right before it"
         raise ValueError(msg)
